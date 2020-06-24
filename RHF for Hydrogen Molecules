@@ -1,0 +1,145 @@
+clear all;
+n=[2,1,2,1];                                         %n(i) is the number of Gaussian functions of each basic set
+KAI=cell(2,4);
+%Basic set of Hydrogen 3-21G
+KAI{1,1}=[5.4471780, 0.8245470];      %[α1,α2]
+KAI{2,1}=[0.1562850, 0.9046910];      %[d1,d2]
+KAI{1,2}=[0.1831920];                        %[α3]
+KAI{2,2}=[1.0000000];                        %[d3]
+KAI{1,3}=[5.4471780, 0.8245470];      %[α1,α2]
+KAI{2,3}=[0.1562850, 0.9046910];      %[d1,d2]
+KAI{1,4}=[0.1831920];                        %[α3]
+KAI{2,4}=[1.0000000];                        %[d3]
+
+% Illustration about unit：atomic unit(1a.u.=0.53A) is used here in this programme. The bond length of H-H is approximately 0.74A, 1.5a.u.
+
+for y=1:41
+    r=0.45+0.05*y;
+    ra=[0,0,r,r];         %r of atoms
+    %S: overlap integration
+    %T: kinetic energy
+    %V: potential energy
+    for i=1:4
+        for j=1:i
+            S0=0; T0=0; V0=0;
+            for h=1:n(i)                                     %h,g are serial numbers of Gaussian function
+                for g=1:n(j) 
+                    aa=KAI{1,j}(g)+KAI{1,i}(h);             %aa: add alpha
+                    at=KAI{1,j}(g)*KAI{1,i}(h);               %at: time alpha
+                    S0=S0+KAI{2,j}(g)*KAI{2,i}(h)*(pi/aa)^1.5*exp(-at/aa*(ra(i)-ra(j))^2);
+                    T0=T0+KAI{2,j}(g)*KAI{2,i}(h)*at/aa*(3-2*at/aa*(ra(i)-ra(j))^2)*(pi/aa)^1.5*exp(-(ra(i)-ra(j))^2*at/aa);
+                    rp=(KAI{1,j}(g)*ra(j)+KAI{1,i}(h)*ra(i))/(KAI{1,j}(g)+KAI{1,i}(h));
+                    if(abs(ra(i)-ra(j))==0)
+                        F0=1+pi^0.5/2*erf(r*aa^0.5)/(r*aa^0.5);
+                    else
+                        F0=pi^0.5/2*(erf((r-rp)*aa^0.5)/(abs(r-rp)*aa^0.5)+erf(rp*aa^0.5)/(rp*aa^0.5));
+                    end
+                    V0=V0-KAI{2,j}(g)*KAI{2,i}(h)*F0*2*pi/aa*exp(-(ra(i)-ra(j))^2*at/aa);
+                end
+            end
+            S(i,j)=S0; S(j,i)=S0;
+            T(i,j)=T0; T(j,i)=T0;
+            V(i,j)=V0; V(j,i)=V0;
+        end
+    end
+    
+    %two-electron integrate (i,j | k,l)
+    for i=1:4
+        for j=1:i
+            for k=1:j;
+                for l=1:k;
+                    G0=0;
+                    for a=1:n(i)
+                        for b=1:n(j);
+                            for c=1:n(k);
+                                for d=1:n(l);
+                                    aa1=KAI{1,i}(a)+KAI{1,j}(b); at1=KAI{1,i}(a)*KAI{1,j}(b);
+                                    aa2=KAI{1,k}(c)+KAI{1,l}(d); at2=KAI{1,l}(d)*KAI{1,k}(c);
+                                    rp=(KAI{1,i}(a)*ra(i)+KAI{1,j}(b)*ra(j))/(KAI{1,i}(a)+KAI{1,j}(b));
+                                    rq=(KAI{1,k}(c)*ra(k)+KAI{1,l}(d)*ra(l))/(KAI{1,k}(c)+KAI{1,l}(d));
+                                    if (rp==rq)
+                                        F0=1;
+                                    else 
+                                        F0=0.5*(pi)^0.5*erf(abs(rp-rq)*sqrt(aa1*aa2/(aa1+aa2)))/abs(rp-rq)/sqrt(aa1*aa2/(aa1+aa2));
+                                    end
+                                    G0=G0+F0*KAI{2,i}(a)*KAI{2,j}(b)*KAI{2,k}(c)*KAI{2,l}(d)*2*(pi)^2.5/aa1/aa2/(aa1+aa2)^0.5*exp(-(ra(i)-ra(j))^2*at1/aa1-(ra(k)-ra(l))^2*at2/aa2);
+                                end
+                            end
+                        end
+                    end
+                    G(i,j,k,l)=G0; G(k,l,i,j)=G0;
+                    G(j,i,k,l)=G0; G(k,l,j,i)=G0;
+                    G(i,j,l,k)=G0; G(l,k,i,j)=G0;
+                    G(j,i,l,k)=G0; G(l,k,j,i)=G0;
+                end
+            end            
+        end
+    end
+    
+    % diagonalize S matrix
+    [U,D]=eig(S);
+    for i=1:4
+        R(i,i)=D(i,i)^(-0.5);
+    end
+    X=U*R*U';
+    
+    %initialize density matrix P
+    C=ones(4,1);
+    P=C*C';
+    Elast=0;         %here Elast and Enew refer to the energy of molecular orbital, instead of total energy.
+    Enew(1)=1;
+    t=1;
+    Elowest=10;
+    while(abs(Elast-Enew(t))>0.0001)
+        Elast=Enew(t);
+        t=t+1;
+        %initialize F matrix
+        for i=1:4
+            for j=1:4
+                JK=0;      % JK is the summary of Comlumn energy and exchange energy
+                for k=1:4
+                    for l=1:4
+                        JK=JK+P(k,l)*(G(i,j,k,l)-0.5*G(i,l,k,j));
+                    end
+                end
+                F(i,j)=T(i,j)+V(i,j)+JK;    % construct Fock Matrix
+            end
+        end
+        
+        Fprime=X'*F*X;
+        [Yprime,epsilon]=eig(Fprime);
+        Y=X*Yprime;
+        EM=diag(epsilon,0);     %EM: diagonalized epsilon matrix
+        [SortedEM,index]=sort(EM);    % select the orbital with the minimum energy as the molecular orbital
+        C=Y(:,index(1));
+
+        Enew(t)=2*C'*(T+V)*C;     %kinetic energy and potential energy
+        for i=1:4         % total enerfy
+            for j=1:4
+                for k=1:4
+                    for l=1:4
+                        Enew(t)=Enew(t)+C(i)*C(j)*C(k)*C(l)*(2*G(i,j,k,l)-G(i,l,k,j));
+                    end
+                end
+            end
+        end
+    end
+    E(y)=Enew(t)+1/r;       % E refers to total energy
+    if E(y)<Elowest;
+        Elowest=E(y);
+    end
+end
+
+figure();
+scatter([0.5:0.05:2.5],E);
+title('Total energy');
+xlabel('H-H bondlength (in a.u.)');
+ylabel('Total energy (in a.u.)');
+
+display(['The energy of hydrogen molecule is ',num2str(Elowest)]); 
+
+
+
+            
+            
+
